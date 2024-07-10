@@ -1,0 +1,129 @@
+import UIKit
+import AVFoundation
+import Vision
+
+/**
+ A view controller for capturing and processing card information using camera and Vision framework.
+ */
+class CardScannerViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+    
+    // MARK: - Properties
+    
+    private let captureSession = AVCaptureSession()
+    private lazy var previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
+    private let videoDataOutput = AVCaptureVideoDataOutput()
+    private var detectionOverlay: CALayer! = nil
+    
+    // MARK: - Lifecycle Methods
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupCamera()
+        setupVision()
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer.frame = view.bounds
+    }
+    
+    // MARK: - Camera Setup
+    
+    /**
+     Sets up the camera session and starts capturing frames.
+     */
+    func setupCamera() {
+        captureSession.sessionPreset = .high
+        
+        guard let captureDevice = AVCaptureDevice.default(for: .video) else { return }
+        guard let deviceInput = try? AVCaptureDeviceInput(device: captureDevice) else { return }
+        
+        captureSession.addInput(deviceInput)
+        
+        videoDataOutput.videoSettings = [(kCVPixelBufferPixelFormatTypeKey as String): kCVPixelFormatType_32BGRA]
+        videoDataOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "camera_frame_processing_queue"))
+        
+        captureSession.addOutput(videoDataOutput)
+        
+        previewLayer.videoGravity = .resizeAspectFill
+        view.layer.addSublayer(previewLayer)
+        
+        captureSession.startRunning()
+    }
+    
+    // MARK: - Vision Setup
+    
+    /**
+     Sets up the Vision request for text recognition and initializes the detection overlay.
+     */
+    func setupVision() {
+        detectionOverlay = CALayer()
+        detectionOverlay.frame = CGRect(x: 0.0,
+                                        y: 0.0,
+                                        width: previewLayer.bounds.width,
+                                        height: previewLayer.bounds.height)
+        detectionOverlay.name = "DetectionOverlay"
+        previewLayer.addSublayer(detectionOverlay)
+    }
+    
+    // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+    
+    /**
+     Processes each captured video frame for text recognition.
+     */
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        let imageRequestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        
+        let textRequest = VNRecognizeTextRequest { (request, error) in
+            guard let observations = request.results as? [VNRecognizedTextObservation] else { return }
+            
+            DispatchQueue.main.async {
+                self.detectionOverlay.sublayers = nil
+                for observation in observations {
+                    let topCandidate = observation.topCandidates(1).first
+                    self.highlightWord(box: observation.boundingBox, text: topCandidate?.string ?? "")
+                }
+            }
+        }
+        
+        textRequest.recognitionLevel = .accurate
+        
+        do {
+            try imageRequestHandler.perform([textRequest])
+        } catch {
+            print("Error performing text detection: \(error)")
+        }
+    }
+    
+    // MARK: - Text Highlighting
+    
+    /**
+     Highlights recognized text with a red border and displays it on the detection overlay.
+     
+     - Parameters:
+        - box: The bounding box of the recognized text.
+        - text: The recognized text string.
+     */
+    func highlightWord(box: CGRect, text: String) {
+        let layer = CALayer()
+        layer.frame = box
+        layer.borderWidth = 2.0
+        layer.borderColor = UIColor.red.cgColor
+        
+        let textLayer = CATextLayer()
+        textLayer.string = text
+        textLayer.fontSize = 11.0
+        textLayer.frame = CGRect(x: 0, y: 0, width: box.size.width, height: box.size.height)
+        textLayer.foregroundColor = UIColor.white.cgColor
+        textLayer.backgroundColor = UIColor.red.cgColor
+        textLayer.contentsScale = 2.0
+        
+        layer.addSublayer(textLayer)
+        detectionOverlay.addSublayer(layer)
+        
+        // Implement logic to process and validate the scanned text
+        // This could involve checking for specific patterns or information typical of ID cards
+    }
+}

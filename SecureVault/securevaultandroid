@@ -1,0 +1,127 @@
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import kotlinx.android.synthetic.main.activity_main.*
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
+/**
+ * MainActivity for capturing and processing card information using camera and ML Kit.
+ */
+class MainActivity : AppCompatActivity() {
+
+    // Executor service for camera operations
+    private lateinit var cameraExecutor: ExecutorService
+
+    /**
+     * Initializes the camera if permissions are granted; requests permissions otherwise.
+     * Sets up the camera executor service.
+     */
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Check camera permissions
+        if (allPermissionsGranted()) {
+            startCamera()
+        } else {
+            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+        }
+
+        // Initialize camera executor service
+        cameraExecutor = Executors.newSingleThreadExecutor()
+    }
+
+    /**
+     * Configures the camera preview and sets up image analysis for scanning cards.
+     */
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            // Preview configuration
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(viewFinder.surfaceProvider)
+                }
+
+            // Image analysis configuration
+            val imageAnalyzer = ImageAnalysis.Builder()
+                .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor, CardAnalyzer())
+                }
+
+            // Select back camera
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                // Unbind any previous use of camera
+                cameraProvider.unbindAll()
+                // Bind lifecycle of camera to current activity
+                cameraProvider.bindToLifecycle(
+                    this, cameraSelector, preview, imageAnalyzer)
+            } catch(exc: Exception) {
+                // Handle any errors
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    /**
+     * Analyzer for processing camera images to extract text from cards.
+     */
+    private class CardAnalyzer : ImageAnalysis.Analyzer {
+
+        override fun analyze(imageProxy: ImageProxy) {
+            val mediaImage = imageProxy.image
+            if (mediaImage != null) {
+                // Convert media image to InputImage
+                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                // Get ML Kit Text Recognition client
+                val recognizer = TextRecognition.getClient()
+                // Process the image
+                recognizer.process(image)
+                    .addOnSuccessListener { visionText ->
+                        // Process the scanned text here
+                        // Implement logic to identify and extract relevant card information
+                    }
+                    .addOnCompleteListener {
+                        // Close the image proxy
+                        imageProxy.close()
+                    }
+            }
+        }
+    }
+
+    companion object {
+        private const val REQUEST_CODE_PERMISSIONS = 10
+        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+    }
+}
+
+/**
+ * Implementation Instructions:
+ * - Ensure all necessary dependencies are included in your project (e.g., androidx.camera, com.google.mlkit.vision).
+ * - Replace package names and resource references (e.g., R.layout.activity_main) as required for your project.
+ * - Handle camera permissions as described in the MainActivity class.
+ * - Integrate MainActivity.kt into your Android project, typically in the `src/main/java/your/package/structure/` directory.
+ */
+
+/**
+ * Release Instructions:
+ * - Test the app thoroughly on various devices to ensure camera functionality and ML Kit text recognition work as expected.
+ * - Configure build types (e.g., debug vs. release) in your Gradle files.
+ * - Sign the APK using Android Studio's signing wizard or manually sign the APK for deployment.
+ * - Prepare necessary assets (icons, screenshots) for publishing on the Google Play Store or other distribution channels.
+ */
